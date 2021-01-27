@@ -21,121 +21,99 @@ Models are exported in the following format
 
 ```
 EquivalenceLink <1, 1>
-    PredicateNode <MODEL_PREDICATE_NAME>
-    <MODEL_BODY>
+  PredicateNode <MODEL_PREDICATE_NAME>
+  <MODEL_BODY>
 ```
 
 ## Features
 
-We need to related GeneNodes <GENE_NAME>, used in the GO description,
-and PredicateNodes <GENE_NAME>, used in the MOSES models. For that I
+We need to related `GeneNodes <GENE_NAME>`, used in the GO description,
+and `PredicateNodes <GENE_NAME>`, used in the MOSES models. For that I
 suggest to use the predicate "overexpressed" as follows:
 
 ```
 EquivalenceLink <1, 1>
-    PredicateNode <GENE_NAME>
-    LambdaLink
+  PredicateNode <GENE_NAME>
+  LambdaLink
+    VariableNode "$X"
+    EvaluationLink
+      PredicateNode "overexpressed"
+      ListLink
+        GeneNode <GENE_NAME>
         VariableNode "$X"
-        EvaluationLink
-            PredicateNode "overexpressed"
-            ListLink
-                GeneNode <GENE_NAME>
-                VariableNode "$X"
 ```
 which says that PredicateNode <GENE_NAME> over sample $X is
 equivalent to "GeneNode <GENE_NAME> is overexpressed in sample $X".
 
 ## Fitnesses
 
-I'm discussing 3 fitnesses, accuracy, sensitivity, and precision. Plus a word about confidence.
+I'm discussing 4 fitness scores:
 
-### Accuracy
+1. Accuracy
+2. Precision
+3. Sensitivity/Recall
+4. False Positive Rate
 
-ACC = (TP + TN) / (P + N)
+Let's assume we have the following predicates
 
-We define an Accuracy predicate, that takes a model and dataset (or
-target feature) as arguments. The model, $M, is itself a predicate
-that evaluates to 1 (the confidence is let aside for now) when the
-individual $X is classified positively, 0 when it is classified
-negatively.
-
-Similarity the target feature, $D, is also a predicate that evaluates
-to 1 when the individual $X has its target feature active, 0
-otherwise.
+1. A MOSES model, binary classifier
 
 ```
-EquivalenceLink <1, 1>
-    BindLink
-        ListLink
-            $M
-            $D
-        EvaluationLink
-            PredicateNode "accuracy"
-            ListLink
-                $M
-                $D
-    BindLink
-        ListLink
-            $M
-            $D
-        AverageLink
-            $X
-            EquivalenceLink
-                ExecutionOutputLink
-                    GetStrength
-                    EvaluationLink
-                        $M
-                        $X
-                ExecutionOutputLink
-                    GetStrength
-                    EvaluationLink
-                        $D
-                        $X
+PredicateNode <MODEL>
 ```
 
-It turns out the TV on the AverageLink is gonna match the accuracy,
-given $M and $D. Indeed, the accuracy is the average number of times
-the model is correct with respect to the dataset. With this
-representation, given the dataset and the model, PLN can directly
-build the Accuracy predicate.
-
-In the absence of dataset, and given the accuracy of each model, one
-may directly write down the Accuracy predicate for each model, and
-target feature:
+2. The target feature, i.e. the real outcome
 
 ```
-EvaluationLink <model accuracy>
-    PredicateNode "accuracy"
-    ListLink
-        PredicateNode <MODEL>
-        PredicateNode <TARGET FEATURE>
+PredicateNode <OUTCOME>
 ```
+
+3. The whole dataset, i.e. containing all inviduals under
+   consideration
+
+```
+PredicateNode <DATA>
+```
+
+Given that we can easily translate the 4 scores into implication links
+involving combinations of these 4 predicates.
 
 ### Precision
 
-The cool thing about precision is that it translates directly into an
-Implication TV strength. that is
+Precision translates directly into an Implication TV strength. that is
 
 ```
-ImplicationLink <TV.s = model precision>
-    PredicateNode <MODEL>
-    PredicateNode <TARGET FEATURE>
+ImplicationLink <TV.strength = PRE, TV.count = POS>
+  PredicateNode <MODEL>
+  PredicateNode <OUTCOME>
 ```
 
 Indeed, According to PLN (assuming all individuals are equiprobable)
 
-TV.s = Sum_x min(P(x), Q(x)) / Sum_x P(x)
+```
+TV.s = Sum_x min(p(x), q(x)) / Sum_x p(x)
+```
 
-where P correspond to the predicate of a model, x runs over the
-individuals of the dataset.
+where `p` is the indicator function associated to the predicate of a
+model, `x` runs over the individuals of the dataset.
 
 This corresponds indeed to the precision
 
-precision = TP / (TP + FP)
+```
+PRE = TP / (TP + FP) = TP / P
+```
 
-as Sum_x P(x) is indeed the number of positively classified
-individuals (TP + FP), and Sum_x min(P(x), Q(x)) the number of
-correctly classified individuals, TP.
+where
+
+```
+POS = TP + FP
+```
+
+the number of positive outcomes classified by the model.
+
+One can see that `Sum_x p(x)` is indeed the number of positively
+classified individuals `POS`, and `Sum_x min(p(x), q(x))` the number
+of correctly classified individuals, `TP`.
 
 ### Recall
 
@@ -143,19 +121,101 @@ Similarly recall is easily translated into an Implication TV
 strength. that is
 
 ```
-ImplicationLink <TV.s = model recall>
-    PredicateNode <TARGET FEATURE>
-    PredicateNode <MODEL>
+ImplicationLink <TV.strength = REC, TV.count = TRU>
+  PredicateNode <OUTCOME>
+  PredicateNode <MODEL>
 ```
 
 given that
 
-recall = TP / (TP + FN)
+```
+REC = TP / (TP + FN) = TP / TRU
+```
 
-### Confidence
+where
 
-The confidence can be
+```
+TRU = TP + FN
+```
 
-c = n / (n+k)
+is the number of actual true outcomes.
 
-where n is the number of individuals, and k is a parameter.
+### False Positive Rate
+
+Likewise, the False Positive Rate is translated into the following
+Implication
+
+```
+ImplicationLink <TV.strength = FPR, TV.count = FAL>
+  And
+    PredicateNode <DATA>
+    Not
+      PredicateNode <OUTCOME>
+  PredicateNode <MODEL>
+```
+
+given that
+
+```
+FPR = FP / (FP + TN) = FP / FAL
+```
+
+where
+
+```
+FAL = FP + TN
+```
+
+is the number of actual false outcomes.
+
+Note the usage of `PredicateNode <DATA>` to guaranty that the negation
+of `PredicateNode <OUTCOME>` has the cardinality of `FAL`.
+
+### Accuracy
+
+Accuracy also translates into an implication link
+
+```
+ImplicationLink <TV.strength = ACC, TV.count = TOT>
+  PredicateNode <DATA>
+  Or
+    And
+      PredicateNode <MODEL>
+      PredicateNode <OUTCOME>
+    And
+      Not PredicateNode <MODEL>
+      Not PredicateNode <OUTCOME>
+```
+
+with
+
+```
+ACC = (TP + TN) / (TRU + FAL) = (TP + TN) / TOT
+```
+
+where
+
+```
+TOT = TRU + FAL
+```
+
+is the total size of the population.
+
+As one can see `TP` is the cardinality of
+
+```
+    And
+      PredicateNode <MODEL>
+      PredicateNode <OUTCOME>
+```
+
+and `TN` is the cardinality of
+
+```
+    And
+      Not PredicateNode <MODEL>
+      Not PredicateNode <OUTCOME>
+```
+
+Since these two sets are disjoint the cardinality of their union
+is `TP + TN`.
